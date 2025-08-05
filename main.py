@@ -439,7 +439,7 @@ def combin_to_config(config, data):
                             i += 1
                         else:
                             out["outbounds"].insert(i, (group.rsplit("-", 1)[0]).rsplit("-", 1)[-1])
-            new_outbound = {'tag': (group.rsplit("-", 1)[0]).rsplit("-", 1)[-1], 'type': 'selector', 'outbounds': ['{' + group + '}']}
+            new_outbound = {'tag': (group.rsplit("-", 1)[0]).rsplit("-", 1)[-1], 'type': 'urltest', 'outbounds': ['{' + group + '}'], 'url': 'http://www.gstatic.com/generate_204', 'interval': '3m', 'tolerance': 500, 'interrupt_exist_connections': True}
             config_outbounds.insert(-2, new_outbound)
             if 'subgroup' not in group:
                 for out in config_outbounds:
@@ -578,6 +578,9 @@ def parse_json(value):
 if __name__ == '__main__':
     init_parsers()
     parser = argparse.ArgumentParser()
+    parser.add_argument('--provider', type=str, help='providers.json path')
+    parser.add_argument('--template', type=str, help='template file path')
+    parser.add_argument('--output', type=str, help='output file path')
     parser.add_argument('--temp_json_data', type=parse_json, help='临时内容')
     parser.add_argument('--template_index', type=int, help='模板序号')
     parser.add_argument('--gh_proxy_index', type=str, help='github加速链接')
@@ -586,27 +589,42 @@ if __name__ == '__main__':
     gh_proxy_index = args.gh_proxy_index
     if temp_json_data and temp_json_data != '{}':
         providers = json.loads(temp_json_data)
+    elif args.provider:
+        providers = load_json(args.provider)
     else:
         providers = load_json('providers.json')  # 加载本地 providers.json
-    if providers.get('config_template'):
+
+    if args.template:
+        config_template_path = args.template
+    elif providers.get('config_template'):
         config_template_path = providers['config_template']
+    else:
+        config_template_path = None
+
+    if config_template_path:
         print('选择: \033[33m' + config_template_path + '\033[0m')
-        # print ('Mẫu cấu hình sử dụng: \033[33m' + template_list[uip] + '.json\033[0m')
-        response = requests.get(providers['config_template'])
-        response.raise_for_status()
-        config = response.json()
+        if config_template_path.startswith(('http://', 'https://')):
+            response = requests.get(config_template_path)
+            response.raise_for_status()
+            config = response.json()
+        else:
+            file_path = config_template_path
+            if file_path.startswith('file://'):
+                file_path = urlparse(file_path).path
+            config = load_json(file_path)
     else:
         template_list = get_template()
         if len(template_list) < 1:
             print('没有找到模板文件')
-            # print('Không tìm thấy file mẫu')
             sys.exit()
         display_template(template_list)
         uip = select_config_template(template_list, selected_template_index=args.template_index)
         config_template_path = 'config_template/' + template_list[uip] + '.json'
         print('选择: \033[33m' + template_list[uip] + '.json\033[0m')
-        # print ('Mẫu cấu hình sử dụng: \033[33m' + template_list[uip] + '.json\033[0m')
         config = load_json(config_template_path)
+
+    output_path = args.output if args.output else providers["save_config_path"]
+
     nodes = process_subscribes(providers["subscribes"])
 
     # 处理github加速
@@ -626,8 +644,26 @@ if __name__ == '__main__':
             for content in contents:
                 # 将内容添加到新列表中
                 combined_contents.append(content)
-        final_config = combined_contents  # 只返回节点信息
+        final_config = {"outbounds": combined_contents}  # 只返回节点信息
+    elif providers.get('providers_only'):
+        provider_outbounds = []
+        all_nodes = []
+        for group, group_nodes in nodes.items():
+            all_nodes.extend(group_nodes)
+            if 'subgroup' in group:
+                subgroup_name = (group.rsplit("-", 1)[0]).rsplit("-", 1)[-1]
+                new_outbound = {
+                    'tag': subgroup_name,
+                    'type': 'urltest',
+                    'outbounds': [node['tag'] for node in group_nodes],
+                    'url': 'http://www.gstatic.com/generate_204',
+                    'interval': '3m',
+                    'tolerance': 500,
+                    'interrupt_exist_connections': True
+                }
+                provider_outbounds.append(new_outbound)
+        final_config = {"outbounds": provider_outbounds + all_nodes}
     else:
         final_config = combin_to_config(config, nodes)  # 节点信息添加到模板
-    save_config(providers["save_config_path"], final_config)
+    save_config(output_path, final_config)
     # updateLocalConfig('http://127.0.0.1:9090',providers['save_config_path'])

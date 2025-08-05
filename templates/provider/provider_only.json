@@ -1,0 +1,15 @@
+{
+    "subscribes": [
+        {
+            "url": "https://proxy.provider04.subscription.link/api?token=your_secret_key",
+            "tag": "provider04",
+            "enabled": true,
+            "emoji": 0,
+            "subgroup": "provider04",
+            "prefix": "",
+            "ex-node-name": "",
+            "User-Agent": "v2rayng"
+        }
+    ],
+    "providers_only": true
+}
